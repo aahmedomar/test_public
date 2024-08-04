@@ -16,7 +16,7 @@
 
 </p>
 
-# Welcome to Qlik Refactor Project
+# Welcome to Eon Collective dbt® Project Template
 
 ## Table Of Contents <a name="toc-"></a>
 - [Versions](#versions-)
@@ -115,6 +115,7 @@ O -- generates --> S
 S -- stored in --> R>catalog.json]
 Y -- consumed by --> T>application]
 Y -- consumed by --> Z>dashboard]
+
 
 ```
 [↑](#toc-)

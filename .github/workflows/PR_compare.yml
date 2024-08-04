@@ -1,0 +1,115 @@
+name: PR Transformation and Comparison
+on: [pull_request]
+env:
+  DBT_PROJECT_NAME: jaffle_shop
+  DTB_PROFILE_ACCOUNT: ${{ secrets.DTB_PROFILE_ACCOUNT }}
+  DTB_PROFILE_USER : ${{ secrets.DTB_PROFILE_USER  }}
+  DTB_PROFILE_PW : ${{ secrets.DTB_PROFILE_PW  }}
+  DTB_PROFILE_ROLE : ${{ secrets.DTB_PROFILE_ROLE  }}
+  DTB_PROFILE_DB : ${{ secrets.DTB_PROFILE_DB  }}
+  DTB_PROFILE_SCHEMA : ${{ secrets.DTB_PROFILE_SCHEMA  }}
+  DTB_PROFILE_WH  : ${{ secrets.DTB_PROFILE_WH   }}
+  DBT_NUM_THREADS: 20
+  
+jobs:
+    compile:
+        name: Build and Compile dbt Project on dbt cloud
+        runs-on: ubuntu-latest
+        steps:
+          - name: Check out the repo hosting the dbt project
+            uses: actions/checkout@v3
+            
+          - name: create string
+            run: |
+              MY_STRING=$(cat << EOF
+              ${{ env.DBT_PROJECT_NAME }}:
+                target: dev
+                outputs:
+                  dev:
+                    type: snowflake
+                    account: ${{ env.DTB_PROFILE_ACCOUNT }} 
+                    client_session_keep_alive: true
+                    database: ${{ env.DTB_PROFILE_DB }}
+                    password: ${{ env.DTB_PROFILE_PW }}
+                    role: ${{ env.DTB_PROFILE_ROLE }}
+                    schema: ${{ env.DTB_PROFILE_SCHEMA }}
+                    threads: ${{ env.DBT_NUM_THREADS }}
+                    user: ${{ env.DTB_PROFILE_USER }}
+                    warehouse: ${{ env.DTB_PROFILE_WH }}
+                  dev_pr:
+                    type: snowflake
+                    account: ${{ env.DTB_PROFILE_ACCOUNT }} 
+                    client_session_keep_alive: true
+                    database: ${{ env.DTB_PROFILE_DB }}
+                    password: ${{ env.DTB_PROFILE_PW }}
+                    role: ${{ env.DTB_PROFILE_ROLE }}
+                    schema: ${{ env.DTB_PROFILE_SCHEMA }}
+                    threads: ${{ env.DBT_NUM_THREADS }}
+                    user: ${{ env.DTB_PROFILE_USER }}
+                    warehouse: ${{ env.DTB_PROFILE_WH }}
+              EOF
+              )
+              MY_STRING="${MY_STRING//'%'/'%25'}"
+              MY_STRING="${MY_STRING//$'\n'/'%0A'}"
+              MY_STRING="${MY_STRING//$'\r'/'%0D'}"
+              echo "::set-output name=content::$MY_STRING"
+            id: my_string
+            
+          - name: display string
+            run: |
+              echo "The string is: ${{ steps.my_string.outputs.content }}"
+              
+          - name: Create .dbt directory and profiles.yml 
+            run: |
+                mkdir -p /home/runner/.dbt
+                touch /home/runner/.dbt/profiles.yml
+                echo -e "${{ steps.my_string.outputs.content }}" >> /home/runner/.dbt/profiles.yml
+                
+          - name: Set up Python 3.8
+            uses: actions/setup-python@v2
+            with:
+              python-version: 3.8
+              
+          - name: Setup DBT + Piperider
+            run: |
+              pip install dbt-snowflake
+              pip install piperider['snowflake']
+              
+          - name: Run DBT on PR environment
+            run:  |
+              dbt deps
+              dbt build --exclude mock_orders --target dev_pr
+          
+          - name: Profile on PR environment
+            run: piperider run --datasource dev_pr --dbt-state target -o /tmp/pr-report/
+            
+          - name: Profile on DEV environment
+            run: piperider run --datasource dev -o /tmp/prod-report/
+            
+          - name: Compare and Prepare
+            run: |
+              piperider compare-reports \
+                --debug \
+                --base /tmp/prod-report/run.json \
+                --target /tmp/pr-report/run.json \
+                --output comparison-report/ \
+              
+              
+          - uses: actions/upload-artifact@v3
+            with:
+              name: comparison-report-artifact
+              path: comparison-report.zip
+            
+          - name: Prepare Comparison Summary
+            run: |
+              echo "# :bar_chart: Piperider Comparison Summary" > summary.md
+              cat comparison-report/summary.md >> summary.md
+              echo -e "\n" >> summary.md
+              echo "## :paperclip: Generated Comparison Report ZIP" >> summary.md
+              echo "Find it in the [Github Action Runs Page](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> summary.md
+
+          - name: Create PR Comment
+            uses: peter-evans/create-or-update-comment@v2.1.0
+            with:
+              issue-number: ${{ github.event.number }}
+              body-file: summary.md

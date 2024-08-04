@@ -1,3 +1,20 @@
+<<<<<<< HEAD
+Welcome to your new dbt project!
+
+### Using the starter project
+
+Try running the following commands:
+- dbt run
+- dbt test
+
+
+### Resources:
+- Learn more about dbt [in the docs](https://docs.getdbt.com/docs/introduction)
+- Check out [Discourse](https://discourse.getdbt.com/) for commonly asked questions and answers
+- Join the [chat](https://community.getdbt.com/) on Slack for live discussions and support
+- Find [dbt events](https://events.getdbt.com) near you
+- Check out [the blog](https://blog.getdbt.com/) for the latest news on dbt's development and best practices
+=======
 <img src="https://static.wixstatic.com/media/95af51_ae2122aebc944721a96afd10f3ccfe0c~mv2.png/v1/fill/w_329,h_45,al_c,q_85,usm_0.66_1.00_0.01,enc_auto/95af51_ae2122aebc944721a96afd10f3ccfe0c~mv2.png" alt="drawing" width="200"/><a name="top-">
 
 <p align="center">
@@ -16,7 +33,7 @@
 
 </p>
 
-# Welcome to Qlik Refactor Project
+# Welcome to Eon Collective dbt® Project Template
 
 ## Table Of Contents <a name="toc-"></a>
 - [Versions](#versions-)
@@ -115,6 +132,7 @@ O -- generates --> S
 S -- stored in --> R>catalog.json]
 Y -- consumed by --> T>application]
 Y -- consumed by --> Z>dashboard]
+
 
 ```
 [↑](#toc-)
@@ -740,3 +758,4 @@ Please review the curover plan as templated in `../etc/CUTOVER_PLAN.md`
 
 [Back to top ↑](#toc-)
 
+>>>>>>> main

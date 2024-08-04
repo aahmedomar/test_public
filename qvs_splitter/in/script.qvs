@@ -1,0 +1,311 @@
+///$tab Main
+SET ThousandSep=',';
+SET DecimalSep='.';
+SET MoneyThousandSep=',';
+SET MoneyDecimalSep='.';
+SET MoneyFormat='$#,##0.00;-$#,##0.00';
+SET TimeFormat='h:mm:ss TT';
+SET DateFormat='M/D/YYYY';
+SET TimestampFormat='M/D/YYYY h:mm:ss[.fff] TT';
+SET FirstWeekDay=6;
+SET BrokenWeeks=1;
+SET ReferenceDay=0;
+SET FirstMonthOfYear=1;
+SET CollationLocale='en-US';
+SET CreateSearchIndexOnReload=1;
+SET MonthNames='Jan;Feb;Mar;Apr;May;Jun;Jul;Aug;Sep;Oct;Nov;Dec';
+SET LongMonthNames='January;February;March;April;May;June;July;August;September;October;November;December';
+SET DayNames='Mon;Tue;Wed;Thu;Fri;Sat;Sun';
+SET LongDayNames='Monday;Tuesday;Wednesday;Thursday;Friday;Saturday;Sunday';
+SET NumericalAbbreviation='3:k;6:M;9:G;12:T;15:P;18:E;21:Z;24:Y;-3:m;-6:μ;-9:n;-12:p;-15:f;-18:a;-21:z;-24:y';
+
+///$tab Mapping
+CODEMAP:
+MAPPING
+Load
+CODE_VALUE, 
+DISPLAY
+FROM
+[lib://Data Warehouse/Cerner/Staging/CCL_CODE_VALUE_Incremental_3.qvd]
+(qvd);
+
+PROV_MAP:
+Mapping
+LOAD
+PERSON_ID,
+NAME_FULL_FORMATTED
+FROM
+[lib://Data Warehouse/Cerner/Staging/CCL_PRSNL_Incremental_3.qvd]
+(qvd);
+///$tab Patient_appt
+PATIENT_APPT:
+LOAD
+    APPT_LOCATION_CD,
+    SCH_EVENT_ID,
+    PATIENT_PERSON_ID AS PERSON_ID,
+    RESOURCE_KEY,
+    UPDT_DT_TM,
+    MRN,
+    APPT_BEG_DT_TM,
+    date(floor(APPT_BEG_DT_TM),'MM/DD/YYYY')  as [APPT Date],
+    APPT_END_DT_TM,
+    STATE_MEANING,
+    DURATION,
+    FIN,
+    ENCNTR_ID,
+    ENCNTR_ID as FACT_ENCNTR_ID,
+    APPT_LOCATION,
+    END_EFFECTIVE_DT_TM,
+    SCHEDULE_ID,
+    BEG_EFFECTIVE_DT_TM,
+    PRSNL_PERSON_ID,
+    PERSONNEL_RESOURCE,
+    PERSONNEL_RESOURCE_ID,
+    RESOURCE,
+    APPOINTMENT_TYPE,
+    PATIENT,
+    REASON_FOR_EXAM,
+    REQUESTED_BY,
+    APPT_FACILITY,
+    ORGANIZATION
+FROM [lib://Data Warehouse/Cerner/Data/Patient_Appointment.qvd]
+(qvd)
+
+
+WHERE APPT_BEG_DT_TM >= '01/01/2019'  //AND APPT_END_DT_TM <= '05/31/2020'
+AND ORGANIZATION = 'Keck Hospital of USC'
+AND (STATE_MEANING = 'CHECKED IN' OR STATE_MEANING = 'CHECKED OUT')
+;
+
+
+///$tab person info
+left join(PATIENT_APPT)
+PERSON_INFO:
+LOAD
+    PARENT_ENTITY_ID AS PERSON_ID,
+    STREET_ADDR as Email
+
+FROM [lib://DevShare/Datawarehouse/Cerner/Staging/CCL_ADDRESS_Incremental_3.qvd]
+(qvd)
+WHERE PARENT_ENTITY_NAME = 'PERSON' AND ACTIVE_IND = 1 AND  ADDRESS_TYPE_CD = 755  AND WILDMATCH(STREET_ADDR,'*@*') and len(PARENT_ENTITY_ID)>1;
+///$tab Encounter_prsnl
+Trmp_Atten:
+LOAD
+ENCNTR_ID,
+PRSNL_PERSON_ID as ATTENDING_PHYSICIAN_ID,
+BEG_EFFECTIVE_DT_TM as ATTE_BEG_EFFECTIVE_DT_TM,
+ApplyMap('PROV_MAP',PRSNL_PERSON_ID)  AS ATTENDING_PHYSICIAN
+FROM [lib://Data Warehouse/Cerner/Staging/CCL_ENCNTR_PRSNL_RELTN_Incremental_3.qvd]
+(qvd)
+WHERE TRIM(ENCNTR_PRSNL_R_CD) = 1116 AND ACTIVE_IND =1 AND
+floor(END_EFFECTIVE_DT_TM )> floor(TODAY()) and Exists('FACT_ENCNTR_ID',ENCNTR_ID);
+
+left join(PATIENT_APPT)
+load * Resident Trmp_Atten;
+drop table Trmp_Atten;
+//Exit Script;
+
+left join(PATIENT_APPT)
+Trmp_Referr:
+LOAD
+ENCNTR_ID,
+PRSNL_PERSON_ID as REFERRING_PHYSICIAN_ID,
+BEG_EFFECTIVE_DT_TM as REFERR_BEG_EFFECTIVE_DT_TM,
+ApplyMap('PROV_MAP',PRSNL_PERSON_ID)  AS REFERRING_PHYSICIAN
+FROM [lib://Data Warehouse/Cerner/Staging/CCL_ENCNTR_PRSNL_RELTN_Incremental_3.qvd]
+(qvd)
+WHERE TRIM(ENCNTR_PRSNL_R_CD) = 1126 AND ACTIVE_IND =1 AND
+floor(END_EFFECTIVE_DT_TM )> floor(TODAY()) and Exists('FACT_ENCNTR_ID',ENCNTR_ID);
+
+
+Left join(PATIENT_APPT)
+LOAD
+    PERSON_ID as REFERRING_PHYSICIAN_ID,
+    NPI_NUMBER as REFERRING_PHYSICIAN_NPI    
+FROM [lib://Data Warehouse/Cerner/Data/Physician.qvd]
+(qvd);
+
+
+
+///$tab Referring Provider Address
+department:
+Left join(PATIENT_APPT)
+//Ref_address:
+LOAD
+   
+    NPI as REFERRING_PHYSICIAN_NPI,/////////////////////////////////////////Key 
+    "PRIMARY OFFICE ADD LINE 1",
+    "PRIMARY OFFICE ADD LINE 2",
+    "PRIMARY OFFICE CITY STATE ZIP",//
+    "PRIMARY OFFICE PHONE",
+    "SECONDARY OFFICE ADD LINE 1",
+    "SECONDARY OFFICE ADD LINE 2",
+    "SECONDARY OFFICE CITY STATE ZIP",
+     if(len( [FAC 3 DEPT])>0, [FAC 3 DEPT],
+     if(len([FAC 1 DEPT])>0,[FAC 1 DEPT],
+     if(len( [FAC 2 DEPT])>0,[FAC 2 DEPT],
+     if(len([VHH DEPT])>0,[VHH DEPT],'No Department found')))) as Consolidated_Dept
+
+FROM [lib://Data Warehouse/ECHO/Data/Echo.qvd]
+(qvd);
+
+///$tab Encounter
+Encountr:
+inner join(PATIENT_APPT)
+LOAD
+    ENCNTR_ID,
+    ENCNTR_TYPE,
+    MED_SERVICE
+FROM [lib://DevShare/Datawarehouse/Cerner/Data/Encounter.qvd]
+(qvd)
+WHERE ENCNTR_TYPE = 'Outpatient';
+
+
+//Exit Script;
+///$tab PRSNL
+Personnel:
+Left join(PATIENT_APPT)
+Load * , 
+ If(POSITION_DISPLAY = 'Placeholder NO Access NO NPI', 'Self Referral', If(POSITION_DISPLAY = 'Placeholder No Access with NPI', 'External Referral', 'Internal Referral')) AS REF_Position;
+
+LOAD
+    PERSON_ID as REFERRING_PHYSICIAN_ID,
+    POSITION_CD ,
+    APPLYMAP('CODEMAP',  POSITION_CD,'MISSING ACTIVESTATUS CD') AS POSITION_DISPLAY
+FROM [lib://Data Warehouse/Cerner/Staging/CCL_PRSNL_Incremental_3.qvd]
+(qvd);
+
+
+
+Final_PATIENT_APPT:
+NoConcatenate
+load *,
+MRN &'|'&ATTENDING_PHYSICIAN_ID&'|'&Timestamp(ATTE_BEG_EFFECTIVE_DT_TM,'MM/DD/YYYY hh:mm:ss') as ATEN_Main_Key,
+MRN &'|'&REFERRING_PHYSICIAN_ID&'|'&Timestamp(REFERR_BEG_EFFECTIVE_DT_TM,'MM/DD/YYYY hh:mm:ss')  as REFERR_Main_Key
+Resident PATIENT_APPT;
+drop table PATIENT_APPT;
+
+ATTEN_Temp:
+//NoConcatenate
+//load Main_Key ;
+//load MRN &'|'&ATTENDING_PHYSICIAN_ID&'|'&MIN_APPT_BEG_DT_TM as Main_Key;
+load MRN &'|'&ATTENDING_PHYSICIAN_ID&'|'&Timestamp(MIN_ATTE_BEG_EFFECTIVE_DT_TM, 'MM/DD/YYYY hh:mm:ss') as ATEN_Main_Key ;
+load 
+MRN,
+min(ATTE_BEG_EFFECTIVE_DT_TM) as MIN_ATTE_BEG_EFFECTIVE_DT_TM,
+ATTENDING_PHYSICIAN_ID
+Resident Final_PATIENT_APPT Group by MRN, ATTENDING_PHYSICIAN_ID ;
+
+
+inner join (Final_PATIENT_APPT)
+load * Resident ATTEN_Temp;
+drop  table ATTEN_Temp;
+
+REFERR_Temp:
+//load Main_Key ;
+//load MRN &'|'&ATTENDING_PHYSICIAN_ID&'|'&MIN_APPT_BEG_DT_TM as Main_Key;
+load MRN &'|'&REFERRING_PHYSICIAN_ID&'|'&Timestamp(MIN_REFERR_BEG_EFFECTIVE_DT_TM, 'MM/DD/YYYY hh:mm:ss') as REFERR_Main_Key ;
+load 
+MRN,
+min(REFERR_BEG_EFFECTIVE_DT_TM) as MIN_REFERR_BEG_EFFECTIVE_DT_TM,
+REFERRING_PHYSICIAN_ID
+Resident Final_PATIENT_APPT Group by MRN, REFERRING_PHYSICIAN_ID ;
+
+inner join (Final_PATIENT_APPT)
+load * Resident REFERR_Temp;
+drop  table REFERR_Temp;
+ 
+
+
+
+
+///$tab Calendar
+//To easily prefix the fields on the calendar (i.e. [Discharge Date] instead of [Date], 
+//simply fill in the parameter below.  If you do not want prefix the calendar, simply LEAVE IT AS IS ('')
+
+
+  /********************************/
+ /**/	Let vCalendarPrefix =  //// <--Do not change this line of code.
+/********************************/
+
+
+	'APPT '	//<-- Type in desired prefix HERE between the quotation marks here.  If not, leave it blank
+
+
+  /***************************************************************************************************/
+ /**/	; LET vCalendarPrefix = IF(len('$(vCalendarPrefix)')>0, Trim('$(vCalendarPrefix)') & ' ', '');	// <-- Do not change this line of code
+/***************************************************************************************************/
+
+
+
+Calendar:
+LEFT Keep (Final_PATIENT_APPT) //<--Replace the word FactTable with the name of your main table, which contains the driving date of your application.
+					   // Then UNCOMMENT the line to only LOAD dates for the applicable time period for this application
+LOAD Date AS [$(vCalendarPrefix)Date], 
+     DateNum AS [$(vCalendarPrefix)DateNum], 
+     PrevWorkDateNum AS [$(vCalendarPrefix)PrevWorkDateNum], 
+     [Month Day] AS [$(vCalendarPrefix)Month Day], 
+     [Calendar Year] AS [$(vCalendarPrefix)Calendar Year], 
+     [Calendar Month] AS [$(vCalendarPrefix)Calendar Month], 
+     [Calendar MonthNum] AS [$(vCalendarPrefix)Calendar MonthNum], 
+     [Fiscal Year] AS [$(vCalendarPrefix)Fiscal Year], 
+     [Fiscal Month] AS [$(vCalendarPrefix)Fiscal Month], 
+     [Fiscal MonthNum] AS [$(vCalendarPrefix)Fiscal MonthNum], 
+      [Fiscal Quarter] as  [$(vCalendarPrefix)Fiscal Quarter],
+     [Fiscal QuarterNum] as [$(vCalendarPrefix)Fiscal QuarterNum],
+     [Month Days] AS [$(vCalendarPrefix)Month Days],
+     DayNum AS [$(vCalendarPrefix)DayNum], 
+     Quarter AS [$(vCalendarPrefix)Quarter], 
+     QuarterNum AS [$(vCalendarPrefix)QuarterNum], 
+     QuarterYear AS [$(vCalendarPrefix)QuarterYear], 
+     MonthYear AS [$(vCalendarPrefix)MonthYear], 
+     MonthYearNum AS [$(vCalendarPrefix)MonthYearNum], 
+     WeekYear AS [$(vCalendarPrefix)WeekYear], 
+     YearWeek AS [$(vCalendarPrefix)YearWeek], 
+     WeekBegin AS [$(vCalendarPrefix)WeekBegin], 
+     WeekBeginNum AS [$(vCalendarPrefix)WeekBeginNum], 
+     WeekName AS [$(vCalendarPrefix)WeekName], 
+     WeekFullName AS [$(vCalendarPrefix)WeekFullName], 
+     MonthBegin AS [$(vCalendarPrefix)MonthBegin], 
+     MonthBeginNum AS [$(vCalendarPrefix)MonthBeginNum], 
+     WeekNum AS [$(vCalendarPrefix)WeekNum], 
+     WeekDayNum AS [$(vCalendarPrefix)WeekDayNum], 
+     WeekDayName As [$(vCalendarPrefix)WeekDayName],
+     WeekDayShortName As [$(vCalendarPrefix)WeekDayShortName],
+     MonthWeekNum AS [$(vCalendarPrefix)MonthWeekNum], 
+     MonthWeek AS [$(vCalendarPrefix)MonthWeek], 
+     MonthWeekDates AS [$(vCalendarPrefix)MonthWeekDates], 
+     PrevYearMonthYearNum AS [$(vCalendarPrefix)PrevYearMonthYearNum], 
+     PrevYearMonthYear AS [$(vCalendarPrefix)PrevYearMonthYear], 
+     PrevMonthYearNum AS [$(vCalendarPrefix)PrevMonthYearNum], 
+     PrevMonthYear AS [$(vCalendarPrefix)PrevMonthYear], 
+     Prev2MonthYearNum AS [$(vCalendarPrefix)Prev2MonthYearNum], 
+     Prev2MonthYear AS [$(vCalendarPrefix)Prev2MonthYear], 
+     Prev3MonthYearNum AS [$(vCalendarPrefix)Prev3MonthYearNum], 
+     Prev3MonthYear AS [$(vCalendarPrefix)Prev3MonthYear], 
+     Prev4MonthYearNum AS [$(vCalendarPrefix)Prev4MonthYearNum], 
+     Prev4MonthYear AS [$(vCalendarPrefix)Prev4MonthYear], 
+     Prev5MonthYearNum AS [$(vCalendarPrefix)Prev5MonthYearNum], 
+     Prev5MonthYear AS [$(vCalendarPrefix)Prev5MonthYear], 
+     Prev6MonthYearNum AS [$(vCalendarPrefix)Prev6MonthYearNum], 
+     Prev6MonthYear AS [$(vCalendarPrefix)Prev6MonthYear]
+FROM
+ [lib://Data Warehouse/All/data/MasterCalendar.qvd]
+(qvd);
+
+
+
+
+
+
+DateVariables:
+Load Date(min([$(vCalendarPrefix)Date]), 'MM/DD/YYYY') as min_date,
+	 Date(max([$(vCalendarPrefix)Date]), 'MM/DD/YYYY') as max_date
+Resident Calendar;
+
+Let vMinDate = FieldValue('min_date',1);
+Let vMaxDate = FieldValue('max_date',1);
+Let vFromDate = Num(Date('$(vMinDate)'));
+Let vToDate = Num(Date('$(vMaxDate)'));
+
+Drop Table DateVariables;

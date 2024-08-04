@@ -1,0 +1,81 @@
+# This is an SBD Caspian's Data Ingestion Onboarding Build Pipeline configuration
+# Used to build, test source system changes on pull requests to main
+# -----
+# Specifying a custom dbt docker image from Docker Hub as our build environment.
+
+image: fishtownanalytics/dbt:1.0.0
+
+definitions: 
+  steps:
+    - step: &dbt-env-prep
+      name: "Prep dbt environment"
+      script:
+        - echo "Starting dbt env prep..."
+        - echo "$DBT_PROJECT_BITBUCKET_PUB_CERT" > ~/.ssh/authorized_keys
+        - cat ~/.ssh/authorized_keys
+        - 'echo -e "$DBT_PROFILE_NAME:\n  outputs:\n    dev:\n      type: $DBT_TARGET_TYPE\n      account: $DBT_TARGET_URL\n\n      user: $DBT_USER\n      password: $DBT_PASSWORD\n\n      role: $DBT_ROLE\n      database: $DBT_DB\n      warehouse: $DBT_WAREHOUSE\n      schema: $DBT_SCHEMA\n      threads: $DBT_NUM_THREADS\n      client_session_keep_alive: True\n      query_tag: dbt_ci_pipelines\n  target: dev\n " >> ~/.dbt/profiles.yml'
+        - echo 'done dbt env prep'
+pipelines:
+  default:
+    - parallel:
+      - step:
+          name: 'qlik_refactor_snowflake - linting'
+          script:
+            - pip install awscli sqlfluff
+            - sqlfluff lint qlik_refactor_snowflake/models/ --dialect snowflake
+            - echo "Finishing build for qlik_refactor_snowflake"
+      - step:
+          name: 'qlik_refactor_snowflake - dbt CI'
+          trigger: manual
+          script:
+            - pip install awscli
+            - mkdir ~/.aws
+            - touch ~/.aws/credentials
+            - 'echo -e "[$AWS_PROFILE_NAME] \naws_access_key_id = $AWS_ACCESS_KEY_ID \naws_secret_access_key = $AWS_SECRET_ACCESS_KEY" > ~/.aws/credentials'
+            - echo "Starting build for CAFETERIA"
+            - cd qlik_refactor_snowflake/
+            - ls -ltr
+            - echo "$DBT_PROJECT_BITBUCKET_PUB_CERT" > ~/.ssh/authorized_keys
+            - mkdir ~/.dbt
+            - touch ~/.dbt/profiles.yml
+            - 'echo -e "$DBT_PROFILE_NAME:\n  outputs:\n    dev:\n      type: $DBT_TARGET_TYPE\n      account: $DBT_TARGET_URL\n\n      user: $DBT_USER\n      password: $DBT_PASSWORD\n\n      role: $DBT_ROLE\n      database: $DBT_DB\n      warehouse: $DBT_WAREHOUSE\n      schema: $DBT_SCHEMA\n      threads: $DBT_NUM_THREADS\n      client_session_keep_alive: True\n      query_tag: dbt_ci_pipelines\n  target: dev\n " >> ~/.dbt/profiles.yml'
+            - echo 'done dbt env prep'
+            - dbt debug
+            - dbt deps
+            - dbt compile
+            - dbt ls --resource-type model
+            - dbt docs generate
+            - aws s3 cp target/ s3://eon-collective-application-workspace/dbt-ci-pipes/ARTIFACTS/$BITBUCKET_REPO_SLUG --recursive
+            - dbt clean
+            - echo "Finishing build for qlik_refactor_snowflake"
+      - step:
+          name: 'qlik_refactor_redshift - linting'
+          trigger: automatic
+          script:
+            - pip install awscli sqlfluff
+            - sqlfluff lint qlik_refactor_redshift/models/ --dialect redshift
+            - echo "Finishing build for qlik_refactor_redshift"
+      - step:
+          name: 'qlik_refactor_redshift - dbt CI'
+          trigger: manual
+          script:
+            - pip install awscli
+            - mkdir ~/.aws
+            - touch ~/.aws/credentials
+            - 'echo -e "[$AWS_PROFILE_NAME] \naws_access_key_id = $AWS_ACCESS_KEY_ID \naws_secret_access_key = $AWS_SECRET_ACCESS_KEY" > ~/.aws/credentials'
+            - echo "Starting build for qlik_refactor_redshift"
+            - cd qlik_refactor_redshift/
+            - ls -ltr
+            - echo "$DBT_PROJECT_BITBUCKET_PUB_CERT" > ~/.ssh/authorized_keys
+            - mkdir ~/.dbt
+            - touch ~/.dbt/profiles.yml
+            - 'echo -e "$DBT_PROFILE_NAME:\n  outputs:\n    dev:\n      type: $DBT_TARGET_TYPE\n      account: $DBT_TARGET_URL\n\n      user: $DBT_USER\n      password: $DBT_PASSWORD\n\n      role: $DBT_ROLE\n      database: $DBT_DB\n      warehouse: $DBT_WAREHOUSE\n      schema: $DBT_SCHEMA\n      threads: $DBT_NUM_THREADS\n      client_session_keep_alive: True\n      query_tag: dbt_ci_pipelines\n  target: dev\n " >> ~/.dbt/profiles.yml'
+            - echo 'done dbt env prep'
+            - dbt debug
+            - dbt deps
+            - dbt compile
+            - dbt ls --resource-type model
+            - dbt docs generate
+            - aws s3 cp target/ s3://eon-collective-application-workspace/dbt-ci-pipes/ARTIFACTS/$BITBUCKET_REPO_SLUG --recursive
+            - dbt clean
+            - echo "Finishing build for qlik_refactor_redshift"

@@ -1,0 +1,30 @@
+name: Redshift Linting
+on:
+  push:
+    branches: [ "feature/*" ]
+  pull_request:
+    branches: [ "main" ] 
+
+jobs:
+  lint_and_test_project:
+    name: Lint and Test dbt project
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Setup Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+      - name: Install SQLFluff and dbt
+        run: |
+          pip install dbt-redshift
+          pip install sqlfluff
+          pip install sqlfluff-templater-dbt
+      - name: Lint project
+        run: |
+          sqlfluff --version
+          sqlfluff lint -i templating,parsing --dialect redshift qlik_refactor_redshift/models/
+      - name: Print success message
+        run: echo "The source code observes the best practices!"

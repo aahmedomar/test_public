@@ -1,0 +1,67 @@
+name: Run dbt project evaluator CI check
+on:
+  # push:
+  #   branches: [ "feature/*" ]
+  pull_request:
+    branches: [ "main" ] 
+env:
+  DBT_PROJECT_NAME: jaffle_shop
+  DTB_PROFILE_ACCOUNT: ${{ secrets.DTB_PROFILE_ACCOUNT }}
+  DTB_PROFILE_USER : ${{ secrets.DTB_PROFILE_USER  }}
+  DTB_PROFILE_PW : ${{ secrets.DTB_PROFILE_PW  }}
+  DTB_PROFILE_ROLE : ${{ secrets.DTB_PROFILE_ROLE  }}
+  DTB_PROFILE_DB : ${{ secrets.DTB_PROFILE_DB  }}
+  DTB_PROFILE_SCHEMA : ${{ secrets.DTB_PROFILE_SCHEMA  }}
+  DTB_PROFILE_WH  : ${{ secrets.DTB_PROFILE_WH   }}
+  DBT_NUM_THREADS: 20
+  DBT_QUERY_TAG: dbt_ci_pipe
+  
+jobs:
+    compile:
+        name: Build and Compile dbt Project
+        runs-on: ubuntu-latest
+        steps:
+          - name: Check out the repo hosting the dbt project
+            uses: actions/checkout@main
+          - name: create string
+            run: |
+              MY_STRING=$(cat << EOF
+              ${{ env.DBT_PROJECT_NAME }}:
+                target: dev
+                outputs:
+                  dev:
+                    type: snowflake
+                    account: ${{ env.DTB_PROFILE_ACCOUNT }} 
+                    client_session_keep_alive: true
+                    database: ${{ env.DTB_PROFILE_DB }}
+                    password: ${{ env.DTB_PROFILE_PW }}
+                    query_tag: ${{ env.DBT_QUERY_TAG }}
+                    role: ${{ env.DTB_PROFILE_ROLE }}
+                    schema: ${{ env.DTB_PROFILE_SCHEMA }}
+                    threads: ${{ env.DBT_NUM_THREADS }}
+                    user: ${{ env.DTB_PROFILE_USER }}
+                    warehouse: ${{ env.DTB_PROFILE_WH }}
+              EOF
+              )
+              MY_STRING="${MY_STRING//'%'/'%25'}"
+              MY_STRING="${MY_STRING//$'\n'/'%0A'}"
+              MY_STRING="${MY_STRING//$'\r'/'%0D'}"
+              echo "::set-output name=content::$MY_STRING"
+            id: my_string
+          - name: display string
+            run: |
+              echo "The string is: ${{ steps.my_string.outputs.content }}"
+          - name: Get and Use dbt docker image to access dbt project
+            uses: addnab/docker-run-action@v3
+            with:
+                image: ghcr.io/dbt-labs/dbt-snowflake:latest
+                options: -v ${{ github.workspace }}:/work -e PROJECT_NAME=dbt_practices
+                shell: bash
+                run: |
+                  mkdir ~/.dbt
+                  touch /root/.dbt/profiles.yml
+                  echo -e "${{ steps.my_string.outputs.content }}" >> /root/.dbt/profiles.yml
+                  cd /work
+                  ls -ltr /work
+                  dbt deps
+                  dbt build --select package:dbt_project_evaluator

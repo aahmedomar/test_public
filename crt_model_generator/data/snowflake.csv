@@ -1,0 +1,5 @@
+database,schema,table,column_name,data_type
+dev_raw, cerner, my_table, col1, varchar
+dev_raw, cerner, my_table, col2, int
+dev_raw, cerner, my_table, col3, float
+dev_raw, cerner, my_table, col4, varchar
